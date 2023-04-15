@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Service</title>
+</head>
+<body>
+    <textarea id="input" rows="4" cols="50"></textarea>
+    <button id="submit">获取实时回复（打字效果）</button>
+    <button id="testApi">测试API POST效果</button>
+    <div id="responses"></div>
+
+    <script>
+        const input = document.getElementById('input');
+        const submit = document.getElementById('submit');
+        const testApi = document.getElementById('testApi');
+        const responses = document.getElementById('responses');
+        
+        const serverUrl = `${location.protocol === 'https:' ? 'wss://' : 'ws://'}${location.host}`;
+
+        let history = [];
+
+        const websocket = new WebSocket(serverUrl + '/ws');
+        submit.addEventListener('click', () => {
+            const text = input.value;
+            input.value = '';
+            appendQuestion(text);
+            websocket.send(JSON.stringify({
+                prompt: text,
+                max_length: 2048,
+                top_p: 0.7,
+                temperature: 0.95,
+                history: history,
+                token: 'Uicm6VMjVPdzepbqnwNvpl25xJjRxFekMV8QZdeTLTwacNBl'
+            }));
+        });
+
+        let previousResponse = '';
+        
+        websocket.onmessage = (event) => {
+            const text = event.data;
+            const newPart = text.slice(previousResponse.length);
+
+            if (newPart) {
+                appendResponse(newPart, true);
+            }
+
+            previousResponse = text;
+        };
+
+
+        testApi.addEventListener('click', async () => {
+            const text = input.value;
+            input.value = '';
+            appendQuestion(text);
+
+            const response = await fetch(`${location.protocol}//${location.host}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer Uicm6VMjVPdzepbqnwNvpl25xJjRxFekMV8QZdeTLTwacNBl',
+                },
+                body: JSON.stringify({
+                    prompt: text,
+                    history: history,
+                    max_length: 2048,
+                    top_p: 0.7,
+                    temperature: 0.95
+                }),
+            });
+
+            const data = await response.json();
+            appendResponse(data.response);
+            history.push([text, data.response]);
+        });
+
+        function appendQuestion(text) {
+            const questionDiv = document.createElement('div');
+            questionDiv.classList.add('question');
+            questionDiv.innerHTML = `<strong>Q:</strong> ${text}`;
+            responses.appendChild(questionDiv);
+        }
+
+        function appendResponse(text, isPartial = false) {
+            let responseDiv;
+
+            if (isPartial && responses.lastElementChild && responses.lastElementChild.classList.contains('response')) {
+                responseDiv = responses.lastElementChild;
+                responseDiv.innerHTML += text;
+            } else {
+                responseDiv = document.createElement('div');
+                responseDiv.classList.add('response');
+                responseDiv.innerHTML = `<strong>A:</strong> ${text}`;
+                responses.appendChild(responseDiv);
+            }
+        }
+    </script>
+</body>
+</html>
