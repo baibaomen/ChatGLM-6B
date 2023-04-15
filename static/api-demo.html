@@ -22,52 +22,58 @@
         let history = [];
 
         const websocket = new WebSocket(serverUrl + '/ws');
+
+        let wsRequest = '';
         submit.addEventListener('click', () => {
             const text = input.value;
+            wsRequest = text;
             input.value = '';
             appendQuestion(text);
-            websocket.send(JSON.stringify({
+            const req = JSON.stringify({
                 prompt: text,
                 max_length: 2048,
                 top_p: 0.7,
                 temperature: 0.95,
                 history: history,
                 token: 'Uicm6VMjVPdzepbqnwNvpl25xJjRxFekMV8QZdeTLTwacNBl'
-            }));
+            });
+            console.log('StringToSendToServerWS:' + req);
+            websocket.send(req);
         });
 
-        let previousResponse = '';
-        
+        let wsResponse = '';
         websocket.onmessage = (event) => {
             const text = event.data;
-            const newPart = text.slice(previousResponse.length);
-
-            if (newPart) {
-                appendResponse(newPart, true);
+            if(text =="{{BBMCPLT}}"){
+                history.push([wsRequest, wsResponse]);
+                wsResponse = '';
             }
-
-            previousResponse = text;
+            else{
+                wsResponse += text;
+                appendResponse(text, true);
+            }
         };
-
 
         testApi.addEventListener('click', async () => {
             const text = input.value;
             input.value = '';
             appendQuestion(text);
 
+            const req = JSON.stringify({
+                    prompt: text,
+                    history: history,
+                    max_length: 2048,
+                    top_p: 0.7,
+                    temperature: 0.95
+                });
+            console.log('StringToPostToServer:' + req);
             const response = await fetch(`${location.protocol}//${location.host}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': 'Bearer Uicm6VMjVPdzepbqnwNvpl25xJjRxFekMV8QZdeTLTwacNBl',
                 },
-                body: JSON.stringify({
-                    prompt: text,
-                    history: history,
-                    max_length: 2048,
-                    top_p: 0.7,
-                    temperature: 0.95
-                }),
+                body: req,
             });
 
             const data = await response.json();

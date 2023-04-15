@@ -113,14 +113,18 @@ def parse_text(text):
 
 
 async def predict(websocket, input, history, max_length, top_p, temperature):
-    async def send_response(response):
-        await websocket.send_text(response)
+    async def send_response(response, last_response):
+        diff = response[len(last_response):]
+        if diff:
+            await websocket.send_text(diff)
 
     history.append((parse_text(input), ""))
+    last_response = ""
     for response, history in model.stream_chat(tokenizer, input, history, max_length=max_length, top_p=top_p,
                                                temperature=temperature):
         history[-1] = (parse_text(input), parse_text(response))
-        await send_response(parse_text(response))
+        await send_response(parse_text(response), last_response)
+        last_response = parse_text(response)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -137,6 +141,7 @@ async def websocket_endpoint(websocket: WebSocket):
             top_p = data.get("top_p", 0.7)
             temperature = data.get("temperature", 0.95)
             await predict(websocket, input, history, max_length, top_p, temperature)
+            await websocket.send_text("{{BBMCPLT}}")
         except Exception as e:
             print(f"Error: {e}")
             break
