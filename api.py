@@ -8,10 +8,18 @@ import mdtex2html
 import uvicorn, json, datetime
 import torch
 
+import secrets
+from threading import Thread
+from time import sleep
+
 DEVICE = "cuda"
 DEVICE_ID = "0"
 CUDA_DEVICE = f"{DEVICE}:{DEVICE_ID}" if DEVICE_ID else DEVICE
+TOKEN_EXPIRATION = 24 * 60 * 60  # 24 hours
+CLEANUP_INTERVAL = 60 * 60  # 1 hour
 
+# Store temporary access tokens
+temp_tokens = {}
 
 def torch_gc():
     if torch.cuda.is_available():
@@ -20,10 +28,21 @@ def torch_gc():
             torch.cuda.ipc_collect()
 
 
+def cleanup_tokens():
+    while True:
+        now = datetime.datetime.now()
+        for token, timestamp in list(temp_tokens.items()):
+            if (now - timestamp).total_seconds() > TOKEN_EXPIRATION:
+                print('Delete token:' + token + ', create at ' + temp_tokens[token])
+                del temp_tokens[token]
+        sleep(CLEANUP_INTERVAL)
+
+
 def read_auth_keys(file_path: str):
     with open(file_path, "r") as file:
         keys = [line.strip() for line in file.readlines()]
     return keys
+
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -34,16 +53,23 @@ async def serve_home():
         content = f.read()
     return content
 
-@app.post("/")
-async def create_item(request: Request, authorization: str = Header(None)):
-    # Verify Authorization header
-    auth_keys = read_auth_keys("key.txt")
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=403, detail="Invalid Authorization header")
 
-    bearer_token = authorization.split(" ")[1]
-    if bearer_token not in auth_keys:
-        raise HTTPException(status_code=403, detail="Invalid Bearer token")
+@app.get("/token")
+async def get_token(appkey: str):
+    auth_keys = read_auth_keys("key.txt")
+    if appkey in auth_keys:
+        token = secrets.token_hex(16)
+        temp_tokens[token] = datetime.datetime.now()
+        print('Token generated for ' + appkey + ':' + token)
+        return {"token": token}
+    else:
+        raise HTTPException(status_code=403, detail="Invalid appkey")
+
+
+@app.post("/")
+async def create_item(request: Request, token: str = Header(None)):
+    if not token or token not in temp_tokens:
+        raise HTTPException(status_code=403, detail="Invalid token")
 
     # Original code
     global model, tokenizer
@@ -136,6 +162,12 @@ async def websocket_endpoint(websocket: WebSocket):
             print("toReceiveJson")
             data = await websocket.receive_json()
             print("data: " + json.dumps(data))
+            token = data.get("token")
+
+            if not token or token not in temp_tokens:
+                await websocket.send_text("{{INVALID_TOKEN}}")
+                break
+
             input = data.get("prompt")
             max_length = data.get("max_length", 2048)
             top_p = data.get("top_p", 0.7)
@@ -149,6 +181,9 @@ async def websocket_endpoint(websocket: WebSocket):
 tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm-6b", trust_remote_code=True)
 model = AutoModel.from_pretrained("THUDM/chatglm-6b", trust_remote_code=True).half().cuda()
 model.eval()
+
+cleanup_thread = Thread(target=cleanup_tokens)
+cleanup_thread.start()
 
 if __name__ == '__main__':
     uvicorn.run(app, host='0.0.0.0', port=8000, workers=1)
