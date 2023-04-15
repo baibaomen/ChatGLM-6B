@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 
 <head>
     <meta charset="UTF-8">
@@ -11,10 +11,25 @@
     <textarea id="input" rows="4" cols="50"></textarea>
     <button id="submitTyping">获取实时回复（打字效果）</button>
     <button id="submitPost">测试API POST效果</button>
+    <label for="appkey">Appkey: </label>
+    <input type="text" id="appkey">
+    <label for="max_length">最大内容长度: </label>
+    <input type="number" id="max_length" value="2000" min="0" max="3000" step="100">
+
+    <label for="top_p">Top_p: </label>
+    <input type="number" id="top_p" value="0.7" min="0" max="1" step="0.01">
+    <label for="temperature">Temperature: </label>
+    <input type="number" id="temperature" value="0.95" min="0" max="1" step="0.01">
+
     <div id="responses"></div>
 
     <script>
         const input = document.getElementById('input');
+        const appkeyInput = document.getElementById('appkey');
+        const top_pInput = document.getElementById('top_p');
+        const temperatureInput = document.getElementById('temperature');
+        const max_lenthInput = document.getElementById('max_length');
+
         const submitTyping = document.getElementById('submitTyping');
         const submitPost = document.getElementById('submitPost');
         const responses = document.getElementById('responses');
@@ -23,8 +38,27 @@
         let websocket;
         let bbmToken;
 
+        function saveToLocalStorage() {
+            localStorage.setItem('appkey', appkeyInput.value);
+            localStorage.setItem('max_length', max_lenthInput.value);
+            localStorage.setItem('top_p', top_pInput.value);
+            localStorage.setItem('temperature', temperatureInput.value);
+        }
+
+        function loadFromLocalStorage() {
+            const appkey = localStorage.getItem('appkey');
+            const max_length = localStorage.getItem('max_length');
+            const top_p = localStorage.getItem('top_p');
+            const temperature = localStorage.getItem('temperature');
+
+            if (appkey) appkeyInput.value = appkey;
+            if (max_length) max_lenthInput.value = max_length;
+            if (top_p) top_pInput.value = top_p;
+            if (temperature) temperatureInput.value = temperature;
+        }
+
         async function getToken() {
-            const response = await fetch(`/token?appkey=Uicm6VMjVPdzepbqnwNvpl25xJjRxFekMV8QZdeTLTwacNBl`);
+            const response = await fetch(`/token?appkey=${appkeyInput.value}`);
             const data = await response.json();
             bbmToken = data.token;
             websocket = createWebSocket();
@@ -32,6 +66,10 @@
 
         function createWebSocket() {
             const ws = new WebSocket(serverUrl + '/ws');
+
+            ws.onopen = () => {
+                console.log('WebSocket connection opened.');
+            };
 
             ws.onmessage = (event) => {
                 const text = event.data;
@@ -45,32 +83,40 @@
             };
 
             ws.onclose = (event) => {
+                console.log('WebSocket connection closed. Code:', event.code);
                 if (event.code === 4001) {
-                    alert('Token 已过期，请刷新页面重新获取。');
+                    alert('Token已过期，请刷新页面重新获取。');
                 } else {
                     setTimeout(() => {
                         websocket = createWebSocket();
                     }, 1000);
                 }
             };
-
             return ws;
         }
+
 
         let history = [];
 
         let wsRequest = '';
-        submitTyping.addEventListener('click', () => {
+        submitTyping.addEventListener('click', async () => {
+            if (appkeyInput.value === '') {
+                alert('请输入Appkey');
+                return;
+            }
+            if (!bbmToken) {
+                await getToken();
+            }
             const text = input.value;
             wsRequest = text;
             input.value = '';
             appendQuestion(text);
             const req = JSON.stringify({
                 prompt: text,
-                max_length: 2048,
-                top_p: 0.7,
-                temperature: 0.95,
                 history: history,
+                max_length: parseInt(max_lenthInput.value),
+                top_p: parseFloat(top_pInput.value),
+                temperature: parseFloat(temperatureInput.value),
                 token: bbmToken
             });
             console.log('StringToSendToServerWS:' + req);
@@ -80,6 +126,13 @@
         let wsResponse = '';
 
         submitPost.addEventListener('click', async () => {
+            if (appkeyInput.value === '') {
+                alert('请输入Appkey');
+                return;
+            }
+            if (!bbmToken) {
+                await getToken();
+            }
             const text = input.value;
             input.value = '';
             appendQuestion(text);
@@ -87,9 +140,9 @@
             const req = JSON.stringify({
                 prompt: text,
                 history: history,
-                max_length: 2048,
-                top_p: 0.7,
-                temperature: 0.95
+                max_length: parseInt(max_lenthInput.value),
+                top_p: parseFloat(top_pInput.value),
+                temperature: parseFloat(temperatureInput.value),
             });
             console.log('StringToPostToServer:' + req);
             const response = await fetch(`${location.protocol}//${location.host}`, {
@@ -127,8 +180,19 @@
             }
         }
 
+        // 添加事件监听器以便在值更改时保存到 localStorage
+        appkeyInput.addEventListener('input', saveToLocalStorage);
+        max_lenthInput.addEventListener('input', saveToLocalStorage);
+        top_pInput.addEventListener('input', saveToLocalStorage);
+        temperatureInput.addEventListener('input', saveToLocalStorage);
+
+        // 页面加载时从 localStorage 加载值
+        loadFromLocalStorage();
+
         // 页面加载时获取 token，并创建 WebSocket 连接
-        getToken();
+        if (appkeyInput.value !== '') {
+            getToken();
+        }
     </script>
 </body>
 

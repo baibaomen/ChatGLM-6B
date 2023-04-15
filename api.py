@@ -33,7 +33,7 @@ def cleanup_tokens():
         now = datetime.datetime.now()
         for token, timestamp in list(temp_tokens.items()):
             if (now - timestamp).total_seconds() > TOKEN_EXPIRATION:
-                print('Delete token:' + token + ', create at ' + temp_tokens[token])
+                print(f"[{datetime.datetime.now()}] - " + 'Delete token:' + token + ', create at ' + temp_tokens[token])
                 del temp_tokens[token]
         sleep(CLEANUP_INTERVAL)
 
@@ -48,26 +48,35 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/", response_class=HTMLResponse)
-async def serve_home():
+async def serve_home(request: Request):
+    print(f"[{datetime.datetime.now()}] - scheme: {request.url.scheme}, url path: {request.url.path}")
+
     with open("static/api-demo.html", "r", encoding="utf-8") as f:
         content = f.read()
     return content
 
 
 @app.get("/token")
-async def get_token(appkey: str):
+async def get_token(appkey: str, request: Request):
+    print(f"[{datetime.datetime.now()}] - scheme: {request.url.scheme}, url path: {request.url.path}, calling parameters: {appkey[:50]}")
     auth_keys = read_auth_keys("key.txt")
     if appkey in auth_keys:
         token = secrets.token_hex(16)
         temp_tokens[token] = datetime.datetime.now()
-        print('Token generated for ' + appkey + ':' + token)
+        print(f"[{datetime.datetime.now()}] - " + 'Token generated for ' + appkey + ':' + token)
         return {"token": token}
     else:
         raise HTTPException(status_code=403, detail="Invalid appkey")
 
 
 @app.post("/")
-async def create_item(request: Request, token: str = Header(None)):
+async def create_item(request: Request, authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=403, detail="Invalid Authorization header")
+    
+    now = datetime.datetime.now()
+
+    token = authorization.split(" ")[1]
     if not token or token not in temp_tokens:
         raise HTTPException(status_code=403, detail="Invalid token")
 
@@ -77,29 +86,34 @@ async def create_item(request: Request, token: str = Header(None)):
     json_post = json.dumps(json_post_raw)
     json_post_list = json.loads(json_post)
 
-    # Print received request parameters
-    print(f"Received request parameters: {json_post_list}")
+    print(f"[{now}] - scheme: {request.url.scheme}, url path: {request.url.path}, calling parameters: {str(json_post_list)[:50]}")
+
 
     prompt = json_post_list.get('prompt')
     history = json_post_list.get('history')
     max_length = json_post_list.get('max_length')
     top_p = json_post_list.get('top_p')
     temperature = json_post_list.get('temperature')
+
+    # Measure model execution time
+    start_time = datetime.datetime.now()
     response, history = model.chat(tokenizer,
                                    prompt,
                                    history=history,
                                    max_length=max_length if max_length else 2048,
                                    top_p=top_p if top_p else 0.7,
                                    temperature=temperature if temperature else 0.95)
-    now = datetime.datetime.now()
-    time = now.strftime("%Y-%m-%d %H:%M:%S")
+    end_time = datetime.datetime.now()
+    time = end_time.strftime("%Y-%m-%d %H:%M:%S")
+    exec_duration = (end_time - start_time).total_seconds()
+
     answer = {
         "response": response,
         "history": history,
         "status": 200,
         "time": time
     }
-    log = "[" + time + "] " + '", prompt:"' + prompt + '", response:"' + repr(response) + '"'
+    log = f"[{datetime.datetime.now()}]" + ' - prompt:"' + prompt + '", response:"' + repr(response) + '"' + ' - Model execution time: {exec_duration} seconds'
     print(log)
     torch_gc()
     return answer
@@ -154,14 +168,13 @@ async def predict(websocket, input, history, max_length, top_p, temperature):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    print(f"[{datetime.datetime.now()}] - scheme: ws")
     await websocket.accept()
     history = []
 
     while True:
         try:
-            print("toReceiveJson")
             data = await websocket.receive_json()
-            print("data: " + json.dumps(data))
             token = data.get("token")
 
             if not token or token not in temp_tokens:
@@ -172,10 +185,15 @@ async def websocket_endpoint(websocket: WebSocket):
             max_length = data.get("max_length", 2048)
             top_p = data.get("top_p", 0.7)
             temperature = data.get("temperature", 0.95)
+            
+            start_time = datetime.datetime.now()
             await predict(websocket, input, history, max_length, top_p, temperature)
+            end_time = datetime.datetime.now()
+            exec_duration = (end_time - start_time).total_seconds()
+            print(f"[{datetime.datetime.now()}] - ws request finished in {exec_duration} seconds.")
             await websocket.send_text("{{BBMCPLT}}")
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"[{datetime.datetime.now()}] - Error: {e}")
             break
 
 tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm-6b", trust_remote_code=True)
