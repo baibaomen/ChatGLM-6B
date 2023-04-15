@@ -13,23 +13,6 @@
             padding: 0;
         }
 
-        h1 {
-            text-align: center;
-            padding: 1rem;
-            background-color: #0d47a1;
-            color: white;
-            margin: 0;
-        }
-
-        .container {
-            max-width: 800px;
-            margin: 2rem auto;
-            background-color: white;
-            padding: 2rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            border-radius: 6px;
-        }
-
         textarea,
         input {
             font-family: Arial, sans-serif;
@@ -54,16 +37,14 @@
             margin-right: 0.5rem;
         }
 
-        #responses {
-            margin-top: 1rem;
+        #input {
+            width: 100%;
         }
 
-        #input{
-            width:100%;
+        #appkey {
+            width: 70%;
         }
-        #appkey{
-            width:70%;
-        }
+
         .question,
         .response {
             background-color: #f0f0f0;
@@ -76,27 +57,54 @@
             font-weight: bold;
             background-color: #e0e0e0;
         }
+        .h1{
+            background-color: #0d47a1;
+            color: white;
+            margin: 0;
+            height: 7vh;
+            font-size: 5vh;
+            text-align: center;
+            vertical-align: middle;
+        }
+        .top{
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 1vh;
+            height: 20vh;
+        }
+        #responses {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 1vh;
+            height: 70vh;
+            overflow-y: auto; /* 添加垂直滚动条 */
+            padding: 1rem;
+            background-color: white;
+        }
+        .top input{
+            margin-right: 2rem;
+        }
+
     </style>
 </head>
 
 <body>
-    <h1>ChatGLM API Demo</h1>
-    <div class="container">
+    <div class="h1">ChatGLM API Demo</div>
+    <div class="top">
         <textarea id="input" rows="4" cols="50"></textarea><br />
         <button id="submitTyping">实时回复（实时效果）</button>
-        <button id="submitPost"  >整体回复（完成显示）</button><br /><br />
+        <button id="submitPost">整体回复（完成显示）</button><br /><br />
         <label for="appkey">Appkey: </label>
         <input type="text" id="appkey"><br />
 
         <label for="max_length">最大内容长度: </label>
-        <input type="number" id="max_length" value="2000" min="0" max="3000" step="100"><br />
+        <input type="number" id="max_length" value="2000" min="0" max="3000" step="100">
         <label for="top_p">Top_p: </label>
-        <input type="number" id="top_p" value="0.7" min="0" max="1" step="0.01"><br />
-        <label for="temperature">Temperature: </label>
-        <input type="number" id="temperature" value="0.95" min="0" max="1" step="0.01"><br />
-
-        <div id="responses"></div>
+        <input type="number" id="top_p" value="0.7" min="0" max="1" step="0.01"><label for="temperature">Temperature: </label>
+        <input type="number" id="temperature" value="0.95" min="0" max="1" step="0.01">
     </div>
+
+    <div id="responses"></div><br /><br />
 
     <script>
         const input = document.getElementById('input');
@@ -239,6 +247,7 @@
             questionDiv.classList.add('question');
             questionDiv.innerHTML = `<strong>Q:</strong> ${text}`;
             responses.appendChild(questionDiv);
+            responses.scrollTop = responses.scrollHeight;
         }
 
         function appendResponse(text, isPartial = false) {
@@ -247,11 +256,13 @@
             if (isPartial && responses.lastElementChild && responses.lastElementChild.classList.contains('response')) {
                 responseDiv = responses.lastElementChild;
                 responseDiv.innerHTML += text;
+                responses.scrollTop = responses.scrollHeight;
             } else {
                 responseDiv = document.createElement('div');
                 responseDiv.classList.add('response');
                 responseDiv.innerHTML = `<strong>A:</strong> ${text}`;
                 responses.appendChild(responseDiv);
+                responses.scrollTop = responses.scrollHeight;
             }
         }
 
