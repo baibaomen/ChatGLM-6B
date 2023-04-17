@@ -1,6 +1,9 @@
+import asyncio
 from fastapi import FastAPI, WebSocket, Request, Header, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from fastapi.concurrency import run_in_threadpool
+from concurrent.futures import ThreadPoolExecutor
 
 import asyncio
 from transformers import AutoModel, AutoTokenizer
@@ -44,7 +47,22 @@ def read_auth_keys(file_path: str):
     return keys
 
 
+queue = asyncio.Queue(maxsize=100)
+
+from fastapi.middleware.cors import CORSMiddleware
+
+# 在FastAPI实例化之后，添加CORS中间件
 app = FastAPI()
+
+# 添加CORS中间件配置
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 允许所有站点访问
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/", response_class=HTMLResponse)
@@ -166,19 +184,15 @@ async def predict(websocket, input, history, max_length, top_p, temperature):
         await send_response(parse_text(response), last_response)
         last_response = parse_text(response)
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    print(f"[{datetime.datetime.now()}] - scheme: ws")
-    await websocket.accept()
+async def process_request(websocket: WebSocket):
     history = []
-
     while True:
         try:
             data = await websocket.receive_json()
             token = data.get("token")
 
             if not token or token not in temp_tokens:
-                await websocket.send_text("{{INVALID_TOKEN}}")
+                await websocket.close(code=4001)
                 break
 
             input = data.get("prompt")
@@ -196,6 +210,25 @@ async def websocket_endpoint(websocket: WebSocket):
             print(f"[{datetime.datetime.now()}] - Error: {e}")
             break
 
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    print(f"[{datetime.datetime.now()}] - scheme: ws")
+    await websocket.accept()
+
+    # 将websocket添加到队列中
+    await queue.put(websocket)
+
+    # 如果队列已满，新的请求将等待
+    if queue.qsize() > 100:
+        print(f"[{datetime.datetime.now()}] - Queue is full, waiting for an available slot.")
+        await queue.join()
+    
+    try:
+        await process_request(websocket)
+    finally:
+        # 标记任务完成，并通知等待的请求
+        queue.task_done()
+
 tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm-6b", trust_remote_code=True)
 model = AutoModel.from_pretrained("THUDM/chatglm-6b", trust_remote_code=True).half().cuda()
 model.eval()
@@ -204,4 +237,4 @@ cleanup_thread = Thread(target=cleanup_tokens)
 cleanup_thread.start()
 
 if __name__ == '__main__':
-    uvicorn.run(app, host='0.0.0.0', port=8000, workers=1)
+    uvicorn.run(app, host='0.0.0.0', port=30081, workers=1)
