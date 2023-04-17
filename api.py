@@ -169,19 +169,18 @@ def parse_text(text):
     text = "".join(lines)
     return text
 
-
-async def predict(websocket, input, history, max_length, top_p, temperature):
-    async def send_response(response, last_response):
+def predict(websocket, input, history, max_length, top_p, temperature):
+    def send_response(response, last_response):
         diff = response[len(last_response):]
         if diff:
-            await websocket.send_text(diff)
+            websocket.send_text(diff)
 
     history.append((parse_text(input), ""))
     last_response = ""
     for response, history in model.stream_chat(tokenizer, input, history, max_length=max_length, top_p=top_p,
                                                temperature=temperature):
         history[-1] = (parse_text(input), parse_text(response))
-        await send_response(parse_text(response), last_response)
+        send_response(parse_text(response), last_response)
         last_response = parse_text(response)
 
 async def process_request(websocket: WebSocket):
@@ -201,7 +200,7 @@ async def process_request(websocket: WebSocket):
             temperature = data.get("temperature", 0.95)
             
             start_time = datetime.datetime.now()
-            await predict(websocket, input, history, max_length, top_p, temperature)
+            predict(websocket, input, history, max_length, top_p, temperature)
             end_time = datetime.datetime.now()
             exec_duration = (end_time - start_time).total_seconds()
             print(f"[{datetime.datetime.now()}] - ws request finished in {exec_duration} seconds.")
@@ -214,20 +213,7 @@ async def process_request(websocket: WebSocket):
 async def websocket_endpoint(websocket: WebSocket):
     print(f"[{datetime.datetime.now()}] - scheme: ws")
     await websocket.accept()
-
-    # 将websocket添加到队列中
-    await queue.put(websocket)
-
-    # 如果队列已满，新的请求将等待
-    if queue.qsize() > 100:
-        print(f"[{datetime.datetime.now()}] - Queue is full, waiting for an available slot.")
-        await queue.join()
-    
-    try:
-        await process_request(websocket)
-    finally:
-        # 标记任务完成，并通知等待的请求
-        queue.task_done()
+    await process_request(websocket)
 
 tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm-6b", trust_remote_code=True)
 model = AutoModel.from_pretrained("THUDM/chatglm-6b", trust_remote_code=True).half().cuda()
@@ -237,4 +223,4 @@ cleanup_thread = Thread(target=cleanup_tokens)
 cleanup_thread.start()
 
 if __name__ == '__main__':
-    uvicorn.run(app, host='0.0.0.0', port=30081, workers=1)
+    uvicorn.run(app, host='0.0.0.0', port=40080, workers=1)
