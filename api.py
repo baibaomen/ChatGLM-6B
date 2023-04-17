@@ -4,8 +4,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from fastapi.concurrency import run_in_threadpool
 from concurrent.futures import ThreadPoolExecutor
+import os
 
-import asyncio
 from transformers import AutoModel, AutoTokenizer
 import mdtex2html
 import uvicorn, json, datetime
@@ -14,6 +14,10 @@ import torch
 import secrets
 from threading import Thread
 from time import sleep
+
+host = os.environ.get('HOST', '0.0.0.0')
+port = int(os.environ.get('PORT', 40080))
+workers = int(os.environ.get('WORKERS', 1))
 
 DEVICE = "cuda"
 DEVICE_ID = "0"
@@ -221,4 +225,4 @@ cleanup_thread = Thread(target=cleanup_tokens)
 cleanup_thread.start()
 
 if __name__ == '__main__':
-    uvicorn.run(app, host='0.0.0.0', port=40080, workers=1)
+    uvicorn.run(app, host=host, port=port, workers=workers)
